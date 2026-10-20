@@ -410,9 +410,16 @@ class TwitchAdapter(BasePlatformAdapter):
             self._sent_ids.pop(mid, None)
 
     def _mentions_us(self, text: str, b: dict[str, Any]) -> bool:
+        # Case-insensitive: both sides are lowercased. Besides the configured
+        # mention names we always match the active account's login AND display
+        # name (Twitch tab-autocomplete sends the display name, which may
+        # differ in case/spacing, e.g. "Dave GPT" for login "davegpt").
         names = [n.lower() for n in b["mention_names"] if str(n).strip()]
-        if not names:
-            names = [b["accounts"][b["send_as"]]["login"].lower()]
+        acc = b["accounts"][b["send_as"]]
+        for extra in (acc.get("login"), acc.get("display_name")):
+            extra = str(extra or "").lower()
+            if extra and extra not in names:
+                names.append(extra)
         names = [n for n in names if n]
         if not names:
             return False
