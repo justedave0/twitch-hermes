@@ -59,3 +59,12 @@ def test_result_banner_is_rendered():
     # bottom Test card.
     assert "msg[0].text" in SRC
     assert "text-red-400" in SRC
+
+
+def test_transient_poll_error_keeps_pairing_alive():
+    # A failed poll (network blip, 5xx) must NOT kill the device-code card:
+    # only a terminal "unknown or expired flow" (404) may. The pairing
+    # window is the one thing the user cannot retry cheaply.
+    assert 'emsg.indexOf("unknown or expired flow")' in SRC, (
+        "poll catch must distinguish terminal 404s from transient errors")
+    assert "retrying" in SRC, "transient poll errors should say they retry"

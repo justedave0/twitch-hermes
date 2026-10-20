@@ -96,7 +96,12 @@ class TwitchClient:
         if code == 200 and p.get("access_token"):
             p["status"] = "authorized"
             return p
-        err = str(p.get("error") or f"http_{code}")
+        # Twitch reports the OAuth error in the "message" field, not the
+        # RFC-standard "error" — e.g. {"status": 400,
+        # "message": "authorization_pending"}. Read both; falling through to
+        # "invalid" on the first pending poll used to kill the pairing card
+        # after 5 seconds.
+        err = str(p.get("error") or p.get("message") or f"http_{code}")
         status = {
             "authorization_pending": "pending",
             "slow_down": "slow_down",

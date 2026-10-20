@@ -366,7 +366,9 @@ def make_fake_request(state: dict):
             if data.get("grant_type") == "urn:ietf:params:oauth:grant-type:device_code":
                 state["polls"] += 1
                 if state["polls"] <= state["pending_polls"]:
-                    return 400, {"error": "authorization_pending"}
+                    # Twitch's REAL wire shape: the error string lives in
+                    # "message", not "error". The fake must match the wire.
+                    return 400, {"status": 400, "message": "authorization_pending"}
                 role = state["device_role"]
                 return 200, {"access_token": f"tok-{role}", "refresh_token": f"ref-{role}",
                              "token_type": "Bearer", "expires_in": 21600, "scope": ""}
@@ -374,7 +376,7 @@ def make_fake_request(state: dict):
                 return 200, {"access_token": f"tok-fresh-{data['refresh_token']}",
                              "refresh_token": "ref-new", "token_type": "Bearer",
                              "expires_in": 21600, "scope": ""}
-            return 400, {"error": "unsupported_grant_type"}
+            return 400, {"status": 400, "message": "unsupported_grant_type"}
         if url.endswith("/oauth2/validate"):
             auth = headers.get("Authorization", "")
             token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""

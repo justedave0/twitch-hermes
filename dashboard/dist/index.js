@@ -207,9 +207,18 @@
             }
           })
           .catch(function (e) {
-            if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-            flow[1](null);
-            setMsg(false, "Flow error: " + e);
+            var emsg = String(e);
+            if (emsg.indexOf("unknown or expired flow") !== -1) {
+              // The flow really is gone (e.g. dashboard restarted) — terminal.
+              if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+              flow[1](null);
+              setMsg(false, "Device flow lost — press Connect again.");
+            } else {
+              // Transient error (network blip, 5xx): keep the code visible
+              // and keep polling. Losing the pairing window here is worse
+              // than a one-line error banner.
+              setMsg(false, "Flow poll error — retrying: " + emsg);
+            }
           });
       }, delay);
     }

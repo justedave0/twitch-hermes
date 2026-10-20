@@ -122,6 +122,39 @@ def test_send_chat_message_without_id_raises(twitch):
                                      sender_id="111", message="x"))
 
 
+def test_poll_pending_reads_twitch_message_field(twitch):
+    """REGRESSION: Twitch reports device-flow errors in the "message" field
+    ({"status": 400, "message": "authorization_pending"}), not the
+    RFC-standard "error" field. A pending poll must map to "pending" —
+    before the fix it fell through to "invalid" and the dashboard killed
+    the pairing card on the first poll (~5 s after Connect)."""
+    client, state, mod = twitch
+
+    async def pending(self, method, url, **kw):
+        return 400, {"status": 400, "message": "authorization_pending"}
+
+    type(client)._request = pending  # type: ignore[assignment]
+    assert run(client.poll_device_token("dev-x"))["status"] == "pending"
+
+
+def test_poll_all_twitch_error_shapes_map_correctly(twitch):
+    """Every documented device-flow error, in Twitch's real wire shape."""
+    client, state, mod = twitch
+    cases = {
+        "slow_down": "slow_down",
+        "expired_token": "expired",
+        "authorization_declined": "denied",
+        "invalid_request": "invalid",
+        "invalid_grant": "invalid",
+    }
+    for wire_msg, want in cases.items():
+        async def fake(self, method, url, _m=wire_msg, **kw):
+            return 400, {"status": 400, "message": _m}
+
+        type(client)._request = fake  # type: ignore[assignment]
+        assert run(client.poll_device_token("dev-x"))["status"] == want, wire_msg
+
+
 def test_create_chat_subscription_uses_websocket_transport(twitch):
     client, state, mod = twitch
 
