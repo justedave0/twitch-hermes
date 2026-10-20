@@ -1,11 +1,15 @@
 """Frontend regression guards (source-level).
 
 The live tab broke in ways unit tests on the backend cannot see: a missing
-Content-Type header made every mutating call 422, and the secret input was a
-dead controlled component. These guards lock both down.
+Content-Type header made every mutating call 422, the secret input was a dead
+controlled component, and the result banner was global instead of per-card.
+These guards lock the current architecture down: independent cards that share
+one postJSON / useSaver / Note, auto-save with no save buttons, and per-card
+inline errors (no global banner).
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 SRC = (Path(__file__).resolve().parents[1] / "dashboard" / "dist" / "index.js").read_text()
@@ -25,40 +29,72 @@ def test_mutating_endpoints_call_postjson_not_raw_fetch():
     for endpoint in ('BASE + "/app"', 'BASE + "/connect"', 'BASE + "/account"',
                      'BASE + "/settings"', 'BASE + "/test"'):
         # each mutating endpoint must appear in a postJSON call
-        import re
         assert re.search(rf'postJSON\(\s*{re.escape(endpoint)}', SRC), (
             f"{endpoint} must be called via postJSON()")
     # the flow poll is a plain GET — must stay fetchJSON (no body involved)
     assert 'SDK.fetchJSON(BASE + "/connect/"' in SRC
 
 
+def test_shared_saver_and_note_reused():
+    # Reuse over re-write: ONE useSaver hook and ONE Note component power every
+    # card. No card reimplements its own save/result state.
+    assert "function useSaver" in SRC, "the shared save/result hook must exist"
+    assert "function Note" in SRC, "the shared inline status component must exist"
+    assert SRC.count("useSaver()") >= 3, "app/accounts/behavior cards must share useSaver"
+    assert SRC.count("h(Note, { note:") >= 4, "every card must render its own <Note/>"
+
+
 def test_secret_input_is_state_bound_not_dead():
-    # The bug: value: "" hardcoded on the password field — real keystrokes
-    # erased on every re-render, so users could not paste the secret.
-    assert 'value: app[0].client_secret' in SRC, "secret field must be bound to state"
+    # The password field must be bound to live local state so real keystrokes
+    # survive re-renders (the old bug: value: "" wiped every keystroke).
+    assert 'value: form[0].client_secret' in SRC, "secret field must be bound to state"
     assert 'value: "", type: "password"' not in SRC, "dead controlled secret input regressed"
 
 
 def test_app_state_seeded_from_status():
-    # The Client ID field displays the stored value; saveApp() posts the app
-    # state. Without seeding the state from /status, saving after only editing
-    # the secret POSTs an empty client_id and 400s.
-    assert "client_id: d.app.client_id" in SRC, "load() must seed the app form state from /status"
-    assert 'value: app[0].client_id' in SRC, "Client ID field must bind to the seeded state"
+    # The Client ID field displays the stored value. Without seeding the form
+    # from /status, saving after only editing the secret POSTs an empty
+    # client_id and 400s. Seeding happens exactly once (a ref) so the 10s
+    # refresh never clobbers an in-progress edit.
+    assert "client_id: props.app.client_id" in SRC, "app form must seed from /status"
+    assert "seeded.current" in SRC, "seed must run once (no clobber on refresh)"
+    assert "value: form[0].client_id" in SRC, "Client ID field must bind to the seeded state"
 
 
 def test_secret_not_erased_on_failed_save():
-    # .finally must not wipe the pasted secret when the save fails — the user
-    # needs to re-read and retry it.
-    assert '.finally(function () { setSavingApp(false); });' in SRC, (
-        "secret field is cleared on failure — only .then may clear it")
+    # The pasted secret is cleared ONLY on a successful save (inside the
+    # out.ok branch) — never unconditionally or in a .finally, so a failed
+    # save leaves the secret visible for re-reading and retry.
+    assert "if (out.ok) {" in SRC, "success path must be explicit"
+    assert 'client_secret: ""' in SRC, "secret is cleared on success"
+    assert not re.search(r'finally\([^)]*\)\s*\{[^}]*client_secret\s*:\s*""', SRC), (
+        "secret must not be wiped in a .finally")
 
 
-def test_result_banner_is_rendered():
-    # Errors must be visible where the user is acting, not buried in the
-    # bottom Test card.
-    assert "msg[0].text" in SRC
-    assert "text-red-400" in SRC
+def test_errors_are_per_card_not_global():
+    # No global result banner. Every card owns a <Note/> that shows its own
+    # success/error inline (red for errors), so a failure appears in the card
+    # that caused it — not in a shared banner the user isn't looking at.
+    assert "text-red-400" in SRC, "error notes must render red"
+    assert 'msg[0].text' not in SRC, "the global msg banner must be gone"
+    assert "h(Note, { note: saver.note })" in SRC, "cards wire their own note into Note"
+
+
+def test_no_save_buttons_autosave():
+    # No "Save ..." buttons anywhere. Each change auto-saves: toggles/checkbox
+    # save on click, text fields save on blur — through the shared commit path.
+    assert "Save app credentials" not in SRC, "app save button must be gone"
+    assert "Save behavior" not in SRC, "behavior save button must be gone"
+    assert "Saving\u2026" not in SRC, "no 'Saving…' button state"
+    assert "function commit" in SRC, "app card auto-saves on blur via commit()"
+    assert "saveField" in SRC, "behavior card auto-saves each changed field"
+
+
+def test_settings_autosave_is_partial():
+    # /settings is a partial update: auto-save posts ONLY the changed field, so
+    # rapid changes never clobber each other. The body must be a single-key
+    # object, not the whole settings object.
+    assert "body[field] = value" in SRC, "auto-save must post a single-field body"
 
 
 def test_transient_poll_error_keeps_pairing_alive():
@@ -71,17 +107,14 @@ def test_transient_poll_error_keeps_pairing_alive():
 
 
 def test_pairing_shows_full_url_not_a_code_box():
-    # The code is already inside the activation URL. A separate code box
-    # made users copy a string that was redundant, and the box's
-    # background flickered + its text was unselectable. The pairing card
-    # must render the FULL verification_uri as the link text, with no
-    # <code> element for user_code.
+    # The code is already inside the activation URL. A separate code box made
+    # users copy a redundant string and its background flickered + its text was
+    # unselectable. The pairing card must render the FULL verification_uri as
+    # the link text, with no <code> element for user_code.
     assert "}, flow.verification_uri)," in SRC, (
         "the link text must be the full verification_uri (code included)")
-    # The instruction is to click the link, not to type a code.
     assert "Click this link on any device" in SRC
     assert "Enter the code" not in SRC, "must not ask the user to type the code"
-    # No <code> element rendering the user_code anywhere in the flow card.
     assert "flow.user_code || " not in SRC, (
         "the code box (h('code', ... flow.user_code)) must be gone")
 
@@ -92,25 +125,25 @@ def test_pairing_link_is_underlined_and_selectable():
 
 
 def test_no_token_countdown_implies_manual_action():
-    # "token valid ~N min" read as a deadline the user must act on. The
-    # adapter auto-refreshes 5 min before expiry; the view must say so.
+    # "token valid ~N min" read as a deadline the user must act on. The adapter
+    # auto-refreshes 5 min before expiry; the view must say so.
     assert "valid ~" not in SRC and " min\"" not in SRC, (
         "do not show a 'token valid ~N min' countdown")
     assert "tokens auto-refresh" in SRC
 
 
 def test_view_auto_refreshes_status():
-    # The tab used to load /status once and go stale until a manual reload.
-    # It must re-poll on an interval, updating only `st` (not the forms).
+    # The tab used to load /status once and go stale until a manual reload. It
+    # must re-poll on an interval, updating only the status (not the forms).
     assert "function refreshStatus" in SRC
     assert "setInterval(refreshStatus" in SRC
     assert "clearInterval(statusTimer)" in SRC
 
 
 def test_poll_renders_only_on_status_change():
-    # Re-rendering the pairing card on every 5s poll (even when the status
-    # was unchanged) flickered the card and killed text selection. The flow
-    # state must only update when the status actually changes.
+    # Re-rendering the pairing card on every 5s poll (even when the status was
+    # unchanged) flickered the card and killed text selection. The flow state
+    # must only update when the status actually changes.
     assert "var lastStatus = flowInfo.status;" in SRC
     assert "} else if (d.status !== lastStatus) {" in SRC
     assert "lastStatus = d.status;" in SRC
