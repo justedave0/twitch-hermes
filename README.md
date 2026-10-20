@@ -42,7 +42,17 @@ Dependencies: `websockets` + `httpx` — both already ship with Hermes.
 ## Setup (dashboard → Twitch tab)
 
 1. **Create your free app** at <https://dev.twitch.tv/console/apps> (any name, no
-   approval, **no redirect URI needed**). Copy the Client ID and Client Secret.
+   approval). Console quirks — all three will bite you:
+   - **Redirect URI is mandatory at creation even though this plugin never
+     uses one** (device flow). Enter the placeholder **`https://localhost`** —
+     it satisfies the HTTPS validator and is never contacted.
+   - **Client Type: keep `Confidential`** (the default). Public clients have
+     no Client Secret, and the secret is what the plugin uses to
+     auto-refresh tokens — without it every 6-hour token would need a new
+     manual login.
+   - **Category:** anything ("Developer"). **Scopes: don't pre-register
+     any** — the device flow requests them at login time.
+   Copy the **Client ID** and **Client Secret** from the app page.
 2. **App card**: paste Client ID + Client Secret → *Save*.
 3. **Accounts card**:
    - *Connect broadcaster* → open `id.twitch.tv/activate`, enter the code, log in as

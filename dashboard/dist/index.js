@@ -284,7 +284,11 @@
           h("p", { className: "text-xs text-muted-foreground" },
             "Create a free app at ",
             h("a", { href: "https://dev.twitch.tv/console/apps", target: "_blank", rel: "noreferrer", className: "text-primary" }, "dev.twitch.tv/console/apps"),
-            " (any name, no approval needed). NO redirect URI is required \u2014 this plugin uses the device-activation flow. Paste the Client ID and Client Secret here; they stay on this machine."),
+            " (any name, no approval). This plugin uses the device-activation flow \u2014 no real redirect URI is ever used. If the console insists on one at creation time, enter the placeholder ",
+            h("code", { className: "border border-border p-1" }, "https://localhost"),
+            " (satisfies the HTTPS check, never contacted). Keep Client Type = ",
+            h("strong", null, "Confidential"),
+            " \u2014 the plugin needs the Client Secret to auto-refresh tokens. Don't pre-register scopes; they're requested at login. Paste the Client ID and Client Secret here; they stay on this machine."),
           h("div", { className: "flex flex-col gap-3" },
             Field({ label: "Client ID", value: (d && d.app && d.app.client_id) || app[0].client_id, placeholder: "e.g. xyz123...", onChange: function (v) { app[1]({ client_id: v, client_secret: app[0].client_secret }); } }),
             Field({ label: "Client secret (leave blank to keep the current one)", value: "", type: "password", placeholder: (d && d.app && d.app.has_secret) ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : "paste client secret", onChange: function (v) { app[1]({ client_id: app[0].client_id, client_secret: v }); } })
