@@ -145,6 +145,13 @@
       SDK.fetchJSON(BASE + "/status")
         .then(function (d) {
           setStatus(d);
+          if (d && d.app) {
+            // Seed the app form state from the stored identity. The Client ID
+            // field displays the stored value, and saveApp() posts this state
+            // — without seeding, a user who only updates the secret would
+            // POST an empty client_id and get 400 "client id is required".
+            app[1]({ client_id: d.app.client_id || "", client_secret: "" });
+          }
           if (d && d.settings) {
             settings[1]({
               send_as: d.settings.send_as,
@@ -169,9 +176,15 @@
       setSavingApp(true);
       setMsg(null, "");
       postJSON(BASE + "/app", { client_id: app[0].client_id, client_secret: app[0].client_secret })
-        .then(function (d) { setMsg(true, d && d.ok ? "App credentials saved." : "Saved."); load(); })
+        .then(function (d) {
+          setMsg(true, d && d.ok ? "App credentials saved." : "Saved.");
+          // Only clear the pasted secret on success — on failure the user
+          // must be able to read what they typed and try again.
+          app[1]({ client_id: app[0].client_id, client_secret: "" });
+          load();
+        })
         .catch(function (e) { setMsg(false, "Save error: " + e); })
-        .finally(function () { setSavingApp(false); app[1]({ client_id: app[0].client_id, client_secret: "" }); });
+        .finally(function () { setSavingApp(false); });
     }
 
     function startPoll(flowInfo) {
@@ -298,7 +311,7 @@
             h("strong", null, "Confidential"),
             " \u2014 the plugin needs the Client Secret to auto-refresh tokens. Don't pre-register scopes; they're requested at login. Paste the Client ID and Client Secret here; they stay on this machine."),
           h("div", { className: "flex flex-col gap-3" },
-            Field({ label: "Client ID", value: (d && d.app && d.app.client_id) || app[0].client_id, placeholder: "e.g. xyz123...", onChange: function (v) { app[1]({ client_id: v, client_secret: app[0].client_secret }); } }),
+            Field({ label: "Client ID", value: app[0].client_id, placeholder: "e.g. xyz123...", onChange: function (v) { app[1]({ client_id: v, client_secret: app[0].client_secret }); } }),
             Field({ label: "Client secret (leave blank to keep the current one)", value: app[0].client_secret, type: "password", placeholder: (d && d.app && d.app.has_secret) ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : "paste client secret", onChange: function (v) { app[1]({ client_id: app[0].client_id, client_secret: v }); } })
           ),
           h("div", { className: "flex items-center gap-2" },

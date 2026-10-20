@@ -39,6 +39,21 @@ def test_secret_input_is_state_bound_not_dead():
     assert 'value: "", type: "password"' not in SRC, "dead controlled secret input regressed"
 
 
+def test_app_state_seeded_from_status():
+    # The Client ID field displays the stored value; saveApp() posts the app
+    # state. Without seeding the state from /status, saving after only editing
+    # the secret POSTs an empty client_id and 400s.
+    assert "client_id: d.app.client_id" in SRC, "load() must seed the app form state from /status"
+    assert 'value: app[0].client_id' in SRC, "Client ID field must bind to the seeded state"
+
+
+def test_secret_not_erased_on_failed_save():
+    # .finally must not wipe the pasted secret when the save fails — the user
+    # needs to re-read and retry it.
+    assert '.finally(function () { setSavingApp(false); });' in SRC, (
+        "secret field is cleared on failure — only .then may clear it")
+
+
 def test_result_banner_is_rendered():
     # Errors must be visible where the user is acting, not buried in the
     # bottom Test card.
