@@ -1,0 +1,13 @@
+{
+  "name": "twitch-platform",
+  "label": "Twitch",
+  "description": "Connect your Twitch app, channel and bot — live chat for your agent (no public URL needed)",
+  "icon": "MessageSquare",
+  "version": "1.0.0",
+  "tab": {
+    "path": "/twitch",
+    "position": "end"
+  },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}

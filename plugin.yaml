@@ -1,0 +1,33 @@
+name: twitch-platform
+label: Twitch
+kind: platform
+version: 1.0.0
+description: >
+  Twitch chat platform for Hermes Agent — your agent lives in any channel's
+  chat: it hears messages over the EventSub WebSocket transport and replies
+  through the Helix chat API. The WebSocket is an OUTBOUND connection, so a
+  public URL, callback address or inbound port is never required. You
+  connect your own Twitch app, your own broadcaster account and your own bot
+  account from the dashboard using Twitch's device-activation flow
+  (twitch.tv/activate) — no OAuth redirect URI. Nothing is hardcoded: every
+  install brings its own credentials and accounts.
+author: "Dave (justedave0)"
+requires_hermes: ">=0.21"
+python_dependencies:
+  - "websockets>=12,<16"
+  - "httpx>=0.27,<1"
+optional_env:
+  - name: TWITCH_ALLOWED_USERS
+    description: "Comma-separated Twitch user IDs or logins allowed to reach the agent (empty = nobody, safe default)"
+    prompt: "Allowed Twitch users (comma-separated IDs or logins)"
+    password: false
+  - name: TWITCH_ALLOW_ALL_USERS
+    description: "Allow any chat user to reach the agent (disables the allowlist — dev only)"
+    prompt: "Allow all users? (true/false)"
+    password: true
+tags:
+  - twitch
+  - chat
+  - streaming
+  - eventsub
+  - platform
