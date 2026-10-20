@@ -68,3 +68,49 @@ def test_transient_poll_error_keeps_pairing_alive():
     assert 'emsg.indexOf("unknown or expired flow")' in SRC, (
         "poll catch must distinguish terminal 404s from transient errors")
     assert "retrying" in SRC, "transient poll errors should say they retry"
+
+
+def test_pairing_shows_full_url_not_a_code_box():
+    # The code is already inside the activation URL. A separate code box
+    # made users copy a string that was redundant, and the box's
+    # background flickered + its text was unselectable. The pairing card
+    # must render the FULL verification_uri as the link text, with no
+    # <code> element for user_code.
+    assert "}, flow.verification_uri)," in SRC, (
+        "the link text must be the full verification_uri (code included)")
+    # The instruction is to click the link, not to type a code.
+    assert "Click this link on any device" in SRC
+    assert "Enter the code" not in SRC, "must not ask the user to type the code"
+    # No <code> element rendering the user_code anywhere in the flow card.
+    assert "flow.user_code || " not in SRC, (
+        "the code box (h('code', ... flow.user_code)) must be gone")
+
+
+def test_pairing_link_is_underlined_and_selectable():
+    assert "underline" in SRC, "the activation link must be underlined like a link"
+    assert "userSelect" in SRC, "the URL text must be selectable/copyable"
+
+
+def test_no_token_countdown_implies_manual_action():
+    # "token valid ~N min" read as a deadline the user must act on. The
+    # adapter auto-refreshes 5 min before expiry; the view must say so.
+    assert "valid ~" not in SRC and " min\"" not in SRC, (
+        "do not show a 'token valid ~N min' countdown")
+    assert "tokens auto-refresh" in SRC
+
+
+def test_view_auto_refreshes_status():
+    # The tab used to load /status once and go stale until a manual reload.
+    # It must re-poll on an interval, updating only `st` (not the forms).
+    assert "function refreshStatus" in SRC
+    assert "setInterval(refreshStatus" in SRC
+    assert "clearInterval(statusTimer)" in SRC
+
+
+def test_poll_renders_only_on_status_change():
+    # Re-rendering the pairing card on every 5s poll (even when the status
+    # was unchanged) flickered the card and killed text selection. The flow
+    # state must only update when the status actually changes.
+    assert "var lastStatus = flowInfo.status;" in SRC
+    assert "} else if (d.status !== lastStatus) {" in SRC
+    assert "lastStatus = d.status;" in SRC

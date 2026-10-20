@@ -97,28 +97,30 @@
         connected
           ? h("p", { className: "text-sm text-muted-foreground" },
               "Connected as @", props.acc.login || "?",
-              props.acc.expires_in !== null && props.acc.expires_in !== undefined
-                ? "  \u2022  token " + (props.acc.expires_in <= 0 ? "expired (auto-refreshes)" : "valid ~" + Math.round(props.acc.expires_in / 60) + " min")
-                : "")
+              "  \u2022  tokens auto-refresh - nothing for you to do")
           : h("p", { className: "text-xs text-muted-foreground" },
               props.role === "broadcaster"
                 ? "Log in with your channel's account. Scopes: channel:bot (unlocks chat events for this channel), user:read:chat, user:write:chat (lets the agent post AS you when you toggle it)."
                 : "Log in with your bot account. Scopes: user:read:chat, user:write:chat, user:bot (lets the agent post AS the bot)."),
         flow
-          ? h("div", { className: "flex flex-col gap-2 border border-border p-3" },
+          ? h("div", { className: "flex flex-col gap-3 border border-border p-4" },
               h("p", { className: "text-sm" },
-                "1. Open this link on any device:  ",
-                h("a", { href: flow.verification_uri, target: "_blank", rel: "noreferrer", className: "text-primary" },
-                  "id.twitch.tv/activate"),
-                "   2. Enter the code:  "),
+                "Click this link on any device (a phone works), log in as the ",
+                (flow.role === "broadcaster" ? "channel" : "bot"),
+                " account, and press Authorize. The code is already in the link:  "),
+              h("a", {
+                href: flow.verification_uri,
+                target: "_blank",
+                rel: "noreferrer",
+                className: "block w-full break-all border border-border p-3 text-base text-primary underline",
+                style: { userSelect: "text", WebkitUserSelect: "text" }
+              }, flow.verification_uri),
               h("div", { className: "flex items-center gap-2" },
-                h("code", { className: "border border-border p-2 text-lg w-full" }, flow.user_code || "\u2026"),
-                h(Button, { onClick: props.onCancel, className: BTN_DANGER }, "Cancel")
-              ),
+                h(Button, { onClick: props.onCancel, className: BTN_DANGER }, "Cancel")),
               h("p", { className: "text-xs text-muted-foreground" },
                 flow.status === "authorized"
                   ? "Authorized \u2713 \u2014 finishing up\u2026"
-                  : "Waiting for authorization\u2026 (log in as the " + flow.role + " account, then click Authorize)")
+                  : "Waiting for authorization\u2026 (waiting for you to press Authorize on the other device)")
             )
           : h("div", { className: "flex items-center gap-2" },
               h(Button, { onClick: function () { props.onConnect(props.role); }, className: BTN_PRIMARY },
@@ -165,9 +167,24 @@
         .catch(function (e) { msg[1]({ ok: false, text: "Load error: " + e }); });
     }
 
+    // The dashboard used to go stale: it loaded /status once and never again,
+    // so a token the gateway had just auto-refreshed only appeared after a
+    // manual tab reload. Auto-refresh the view every 10s. This updates only
+    // `st` (accounts/app/channel) - it never touches the form fields or the
+    // active pairing card, so nothing you are editing is clobbered.
+    function refreshStatus() {
+      SDK.fetchJSON(BASE + "/status")
+        .then(function (d) { if (d) setStatus(d); })
+        .catch(function () { /* transient - keep the last known state */ });
+    }
+
     useEffect(function () {
       load();
-      return function () { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+      var statusTimer = setInterval(refreshStatus, 10000);
+      return function () {
+        if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+        clearInterval(statusTimer);
+      };
     }, []);
 
     function setMsg(ok, text) { msg[1](ok === null ? null : { ok: ok, text: text }); }
@@ -190,6 +207,7 @@
     function startPoll(flowInfo) {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
       var delay = Math.max(5, Math.round((flowInfo.interval || 5) * 1000));
+      var lastStatus = flowInfo.status;
       pollRef.current = setInterval(function () {
         SDK.fetchJSON(BASE + "/connect/" + flowInfo.flow_id)
           .then(function (d) {
@@ -202,7 +220,10 @@
               if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
               flow[1](null);
               setMsg(false, "Device flow " + d.status + " \u2014 press Connect again.");
-            } else {
+            } else if (d.status !== lastStatus) {
+              // Only re-render when the status actually changes - re-rendering
+              // every 5s used to flicker the card and kill text selection.
+              lastStatus = d.status;
               flow[1]({ role: flowInfo.role, user_code: flowInfo.user_code, verification_uri: flowInfo.verification_uri, status: d.status });
             }
           })
@@ -339,7 +360,7 @@
         ),
         h(CardContent, { className: "flex flex-col gap-4" },
           h("p", { className: "text-xs text-muted-foreground" },
-            "Each Connect button gives you a short code. Open the link on any device (phone works), log in as that account, and authorize. The token is stored on this machine and auto-refreshes \u2014 no redirect URL, ever."),
+            "Each Connect button opens a link that already contains your pairing code. Click it on any device (a phone works), log in as that account, and press Authorize. Tokens are stored on this machine and auto-refresh - no redirect URL, ever."),
           h(AccountRow, { role: "broadcaster", acc: accs.broadcaster || { has_token: false }, flow: flow[0], onConnect: connect, onCancel: cancelFlow, onDisconnect: disconnect }),
           h(AccountRow, { role: "bot", acc: accs.bot || { has_token: false }, flow: flow[0], onConnect: connect, onCancel: cancelFlow, onDisconnect: disconnect })
         )
