@@ -109,6 +109,35 @@ after any socket loss.
 - Cron delivery works: `deliver="twitch"` jobs post to the channel via a
   standalone sender (no live gateway needed).
 
+## Tests
+
+The test suite runs in any bare venv — no gateway, dashboard or Hermes home
+needed (the hermes storage layer and the gateway adapter contract are
+twinned in `tests/conftest.py`, and Twitch is a fake HTTP backend):
+
+```bash
+python -m venv .venv && . .venv/bin/activate
+pip install pytest "fastapi>=0.110" "httpx>=0.27,<1" "websockets>=12,<16"
+python -m pytest tests/ -q
+```
+
+Coverage:
+- `test_client.py` — device flow, token refresh, `/oauth2/validate`
+  identity lookup, chat send, EventSub subscription shape
+- `test_dashboard_api.py` — the full user flow through the real FastAPI
+  router: save app credentials (secret never echoed), connect both roles
+  (pending → authorized → identity + channel + home channel), settings
+  round-trip, send-as toggle applies live, test message, disconnect,
+  no-secret-leak in any response
+- `test_policy.py` — mention gate (case-insensitive, display-name, prefix
+  protection), config gaps, echo bookkeeping, live config bundle
+- `test_register.py` — platform registration contract
+- `test_frontend.py` — regression guards for the UI bugs this project
+  shipped with: every mutating call carries `Content-Type: application/json`,
+  the secret input is state-bound, and errors render in the top banner
+
+GitHub Actions runs the same suite on every push (`.github/workflows/tests.yml`).
+
 ## Uninstall
 
 `hermes plugins disable twitch-hermes` (or remove), then delete the `TWITCH_*`

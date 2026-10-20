@@ -127,6 +127,18 @@ class TwitchClient:
             raise TwitchError(code, f"token refresh failed: {p.get('error_description') or p}")
         return p
 
+    async def validate_token(self, token: str) -> dict:
+        """GET /oauth2/validate → {user_id, login, scope, client_id, expires_in}.
+
+        The documented way to introspect a user access token — who it
+        belongs to. This is how a device-flow login learns its identity
+        (the Helix /users endpoint cannot answer "who am I")."""
+        code, p = await self._request("GET", f"{ID_URL}/oauth2/validate",
+                                      headers={"Authorization": f"Bearer {token}"})
+        if code != 200 or not p.get("user_id"):
+            raise TwitchError(code, f"token validation failed: {p}")
+        return p
+
     # ── Helix (user-token) ───────────────────────────────────────────────
 
     async def _helix(self, method: str, path: str, token: str, *,

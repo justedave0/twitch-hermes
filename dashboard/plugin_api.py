@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -29,6 +30,8 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -283,18 +286,22 @@ async def poll_connect(flow_id: str) -> dict[str, Any]:
     te = dict(s.get("token_expires") or {})
     te[role] = time.time() + float(data.get("expires_in") or 21600)
     _save("token_expires", te)
-    # Resolve the account identity
+    # Resolve the account identity from the token itself (who-am-I).
     try:
-        user = await client.get_user(data["access_token"])
-    except Exception:  # noqa: BLE001
-        user = None
+        info = await client.validate_token(data["access_token"])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("twitch-platform: token validation failed: %s", e)
+        info = {}
     accounts = dict(s.get("accounts") or {})
     accounts[role] = {
-        "user_id": str((user or {}).get("id") or ""),
-        "login": str((user or {}).get("login") or ""),
-        "display_name": str((user or {}).get("display_name") or ""),
+        "user_id": str(info.get("user_id") or ""),
+        "login": str(info.get("login") or ""),
+        "display_name": str(info.get("login") or ""),
     }
     _save("accounts", accounts)
+    if not accounts[role]["user_id"]:
+        return {"status": "authorized",
+                "warning": "Twitch accepted the login but returned no user id — reconnect this account"}
     result: dict[str, Any] = {
         "status": "authorized",
         "login": accounts[role]["login"],

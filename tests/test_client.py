@@ -1,0 +1,141 @@
+"""TwitchClient unit tests — the HTTP layer, mocked at ``_request``.
+
+Covers the device-activation flow (the whole point of the plugin: no
+redirect URI), token refresh, /oauth2/validate identity lookup, chat send
+and EventSub subscription creation.
+"""
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from conftest import fresh_state, make_fake_request
+
+
+def run(coro):
+    return asyncio.new_event_loop().run_until_complete(coro)
+
+
+@pytest.fixture
+def twitch(client_mod):
+    state = fresh_state()
+    client = client_mod.TwitchClient("cid-test", "sec-test")
+    type(client)._request = make_fake_request(state)  # class-level: binds self  # type: ignore[assignment]
+    return client, state, client_mod
+
+
+def test_client_requires_client_id(client_mod):
+    with pytest.raises(ValueError):
+        client_mod.TwitchClient("")
+
+
+def test_scopes_match_the_documented_requirements(client_mod):
+    # bot: read + write chat + the user:bot scope needed for EventSub
+    assert client_mod.SCOPES_BOT == ["user:read:chat", "user:write:chat", "user:bot"]
+    # broadcaster: channel:bot unlocks chat events for that channel
+    assert client_mod.SCOPES_BROADCASTER[0] == "channel:bot"
+    assert "user:write:chat" in client_mod.SCOPES_BROADCASTER  # send-as-broadcaster needs it
+
+
+def test_device_authorization_returns_code_and_no_redirect(twitch):
+    client, state, mod = twitch
+    dev = run(client.device_authorization(mod.SCOPES_BOT))
+    assert dev["user_code"] == "WXYZ-1234"
+    assert dev["verification_uri"] == "https://id.twitch.tv/activate"
+    assert dev["device_code"]
+    assert "interval" in dev and "expires_in" in dev
+    # the flow encodes the role by scopes: bot scopes → bot token later
+    assert state["device_role"] == "bot"
+
+
+def test_device_flow_pending_then_authorized(twitch):
+    client, state, mod = twitch
+    dev = run(client.device_authorization(mod.SCOPES_BROADCASTER))
+    assert state["device_role"] == "broadcaster"
+    first = run(client.poll_device_token(dev["device_code"]))
+    assert first["status"] == "pending"
+    second = run(client.poll_device_token(dev["device_code"]))
+    assert second["status"] == "authorized"
+    assert second["access_token"] == "tok-broadcaster"
+    assert second["refresh_token"] == "ref-broadcaster"
+
+
+def test_device_flow_expired_maps_to_expired_status(client_mod):
+    client = client_mod.TwitchClient("cid", "sec")
+
+    async def fake(self, method, url, **kw):
+        return 400, {"error": "expired_token"}
+
+    type(client)._request = fake  # type: ignore[assignment]
+    assert run(client.poll_device_token("dev-x"))["status"] == "expired"
+
+
+def test_refresh_token_success_and_failure(twitch):
+    client, state, mod = twitch
+    data = run(client.refresh_token("ref-bot"))
+    assert data["access_token"] == "tok-fresh-ref-bot"
+    assert data["refresh_token"] == "ref-new"
+
+    async def reject(self, method, url, **kw):
+        return 400, {"error": "invalid_grant", "error_description": "refresh token used"}
+
+    type(client)._request = reject  # type: ignore[assignment]
+    with pytest.raises(mod.TwitchError):
+        run(client.refresh_token("ref-bot"))
+
+
+def test_validate_token_returns_identity(twitch):
+    client, state, mod = twitch
+    info = run(client.validate_token("tok-bot"))
+    assert info["user_id"] == "111"
+    assert info["login"] == "davegpt"
+    info2 = run(client.validate_token("tok-broadcaster"))
+    assert info2["user_id"] == "222"
+    assert info2["login"] == "justedave"
+
+
+def test_validate_bad_token_raises(twitch):
+    client, state, mod = twitch
+    with pytest.raises(mod.TwitchError):
+        run(client.validate_token("tok-nobody"))
+
+
+def test_send_chat_message_returns_id_and_posts_required_fields(twitch):
+    client, state, mod = twitch
+    mid = run(client.send_chat_message("tok-bot", broadcaster_id="222",
+                                       sender_id="111", message="hello"))
+    assert mid == "msg-1"
+    body = state["sends"][0]
+    assert body == {"broadcaster_id": "222", "sender_id": "111", "message": "hello"}
+
+
+def test_send_chat_message_without_id_raises(twitch):
+    client, state, mod = twitch
+
+    async def no_id(self, method, url, **kw):
+        return 200, {"data": []}
+
+    type(client)._request = no_id  # type: ignore[assignment]
+    with pytest.raises(mod.TwitchError):
+        run(client.send_chat_message("tok-bot", broadcaster_id="222",
+                                     sender_id="111", message="x"))
+
+
+def test_create_chat_subscription_uses_websocket_transport(twitch):
+    client, state, mod = twitch
+
+    captured = {}
+
+    async def spy(self, method, url, **kw):
+        if url.endswith("/eventsub/subscriptions") and method == "POST":
+            captured.update(kw.get("json_body") or {})
+        return await make_fake_request(state)(self, method, url, **kw)
+
+    type(client)._request = spy  # type: ignore[assignment]
+    sub = run(client.create_chat_subscription("tok-bot", session_id="sess-1",
+                                              broadcaster_user_id="222", user_id="111"))
+    assert sub["id"] == "sub-1"
+    assert captured["type"] == "channel.chat.message"
+    assert captured["transport"] == {"method": "websocket", "session_id": "sess-1"}
+    assert captured["condition"] == {"broadcaster_user_id": "222", "user_id": "111"}

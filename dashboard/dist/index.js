@@ -34,6 +34,16 @@
 
   var BASE = "/api/plugins/twitch-platform";
 
+  // fetchJSON does NOT set a Content-Type header; without it the browser
+  // fetch sends string bodies as text/plain and FastAPI 422s them.
+  function postJSON(url, body, method) {
+    return SDK.fetchJSON(url, {
+      method: method || "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  }
+
   var BTN_BASE = "inline-flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors cursor-pointer";
   var BTN_OUTLINE = BTN_BASE + " border border-border bg-background/40 text-foreground hover:bg-foreground/10";
   var BTN_PRIMARY = BTN_BASE + " bg-primary text-primary-foreground hover:opacity-90";
@@ -158,10 +168,7 @@
     function saveApp() {
       setSavingApp(true);
       setMsg(null, "");
-      SDK.fetchJSON(BASE + "/app", {
-        method: "POST",
-        body: JSON.stringify({ client_id: app[0].client_id, client_secret: app[0].client_secret })
-      })
+      postJSON(BASE + "/app", { client_id: app[0].client_id, client_secret: app[0].client_secret })
         .then(function (d) { setMsg(true, d && d.ok ? "App credentials saved." : "Saved."); load(); })
         .catch(function (e) { setMsg(false, "Save error: " + e); })
         .finally(function () { setSavingApp(false); app[1]({ client_id: app[0].client_id, client_secret: "" }); });
@@ -196,7 +203,7 @@
 
     function connect(role) {
       setMsg(null, "");
-      SDK.fetchJSON(BASE + "/connect", { method: "POST", body: JSON.stringify({ role: role }) })
+      postJSON(BASE + "/connect", { role: role })
         .then(function (d) {
           flow[1]({ role: d.role, flow_id: d.flow_id, user_code: d.user_code, verification_uri: d.verification_uri, interval: d.interval, status: "pending" });
           startPoll(d);
@@ -211,7 +218,7 @@
     }
 
     function disconnect(role) {
-      SDK.fetchJSON(BASE + "/account", { method: "DELETE", body: JSON.stringify({ role: role }) })
+      postJSON(BASE + "/account", { role: role }, "DELETE")
         .then(function () { setMsg(true, role + " disconnected."); load(); })
         .catch(function (e) { setMsg(false, "Disconnect error: " + e); });
     }
@@ -219,16 +226,13 @@
     function saveSettings() {
       setMsg(null, "");
       var s = settings[0] || {};
-      SDK.fetchJSON(BASE + "/settings", {
-        method: "PUT",
-        body: JSON.stringify({
-          send_as: s.send_as,
-          response_mode: s.response_mode,
-          mention_names: String(s.mention_names || "").split(","),
-          allowed_users: s.allowed_users,
-          allow_all_users: s.allow_all_users
-        })
-      })
+      postJSON(BASE + "/settings", {
+        send_as: s.send_as,
+        response_mode: s.response_mode,
+        mention_names: String(s.mention_names || "").split(","),
+        allowed_users: s.allowed_users,
+        allow_all_users: s.allow_all_users
+      }, "PUT")
         .then(function (d) {
           setMsg(true, d && d.restart_required
             ? "Saved \u2014 allowlist changes apply on the next gateway restart."
@@ -240,7 +244,7 @@
     function testMessage() {
       setTesting(true);
       setMsg(null, "");
-      SDK.fetchJSON(BASE + "/test", { method: "POST", body: JSON.stringify({ text: "" }) })
+      postJSON(BASE + "/test", { text: "" })
         .then(function (d) {
           if (d && d.ok) {
             setMsg(true, "\u2713 sent to #" + (d.channel || "channel") + " as " + d.as + " \u2014 check your chat");
@@ -257,6 +261,10 @@
     var accs = (d && d.accounts) || {};
 
     return h("div", { className: "flex flex-col gap-6" },
+      // Global result banner — every save/connect/settings error lands here,
+      // so a failure is never hidden in a card the user isn't looking at.
+      msg[0] ? h("div", { className: "border border-border p-3 text-sm " + (msg[0].ok ? "text-emerald-400" : "text-red-400") },
+        (msg[0].ok ? "\u2713 " : "\u2717 ") + msg[0].text) : null,
       h(Card, null,
         h(CardHeader, null,
           h("div", { className: "flex items-center gap-3" },
@@ -291,7 +299,7 @@
             " \u2014 the plugin needs the Client Secret to auto-refresh tokens. Don't pre-register scopes; they're requested at login. Paste the Client ID and Client Secret here; they stay on this machine."),
           h("div", { className: "flex flex-col gap-3" },
             Field({ label: "Client ID", value: (d && d.app && d.app.client_id) || app[0].client_id, placeholder: "e.g. xyz123...", onChange: function (v) { app[1]({ client_id: v, client_secret: app[0].client_secret }); } }),
-            Field({ label: "Client secret (leave blank to keep the current one)", value: "", type: "password", placeholder: (d && d.app && d.app.has_secret) ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : "paste client secret", onChange: function (v) { app[1]({ client_id: app[0].client_id, client_secret: v }); } })
+            Field({ label: "Client secret (leave blank to keep the current one)", value: app[0].client_secret, type: "password", placeholder: (d && d.app && d.app.has_secret) ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : "paste client secret", onChange: function (v) { app[1]({ client_id: app[0].client_id, client_secret: v }); } })
           ),
           h("div", { className: "flex items-center gap-2" },
             h(Button, { onClick: saveApp, disabled: savingApp[0], className: BTN_PRIMARY }, savingApp[0] ? "Saving\u2026" : "Save app credentials")
