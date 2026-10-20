@@ -194,9 +194,17 @@ class TwitchClient:
             "message": message,
         })
         data = p.get("data") or []
-        if not data or not data[0].get("id"):
+        if not data:
+            raise TwitchError(200, f"no message in response: {p}")
+        item = data[0]
+        # Real wire shape: {"data": [{"message_id", "is_sent", "drop_reason"}]}
+        # — the id key is "message_id", NOT "id".
+        if item.get("is_sent") is False:
+            # The message was dropped by Twitch (raid, rate limit, ...).
+            raise TwitchError(200, f"message dropped by Twitch: {item.get('drop_reason')}")
+        if not item.get("message_id"):
             raise TwitchError(200, f"no message id in response: {p}")
-        return str(data[0]["id"])
+        return str(item["message_id"])
 
     # ── EventSub (websocket transport — user token only) ─────────────────
 

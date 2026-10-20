@@ -394,7 +394,10 @@ def make_fake_request(state: dict):
                          "expires_in": 21600, "scope": ""}
         if url.endswith("/helix/chat/messages"):
             state["sends"].append(json_body or {})
-            return 200, {"data": [{"id": f"msg-{len(state['sends'])}", **(json_body or {})}]}
+            # Twitch's REAL wire shape for POST /chat/messages — the id is
+            # "message_id", with is_sent / drop_reason alongside it.
+            return 200, {"data": [{"message_id": f"msg-{len(state['sends'])}",
+                                   "is_sent": True, "drop_reason": None}]}
         if url.endswith("/eventsub/subscriptions"):
             if method == "POST":
                 return 200, {"data": [{"id": "sub-1", "status": "enabled"}]}

@@ -122,6 +122,39 @@ def test_send_chat_message_without_id_raises(twitch):
                                      sender_id="111", message="x"))
 
 
+def test_send_chat_message_reads_real_twitch_wire_shape(twitch):
+    """REGRESSION: POST /chat/messages returns {"data": [{"message_id",
+    "is_sent", "drop_reason"}]} — the id key is "message_id", not "id".
+    The old code read data[0]["id"], so EVERY successful send (the message
+    visibly landed in chat) was reported as
+    'HTTP 200: no message id in response' to the user."""
+    client, state, mod = twitch
+
+    async def real(self, method, url, **kw):
+        return 200, {"data": [{"message_id": "fbb45d5a-dd6c-40c7-9c96-b5cb71f88adf",
+                               "is_sent": True, "drop_reason": None}]}
+
+    type(client)._request = real  # type: ignore[assignment]
+    mid = run(client.send_chat_message("tok-bot", broadcaster_id="222",
+                                       sender_id="111", message="hello"))
+    assert mid == "fbb45d5a-dd6c-40c7-9c96-b5cb71f88adf"
+
+
+def test_send_chat_message_dropped_raises(twitch):
+    """is_sent=False means Twitch dropped the message (raid, rate limit, ...)
+    — reporting its id as success would lie about what happened."""
+    client, state, mod = twitch
+
+    async def dropped(self, method, url, **kw):
+        return 200, {"data": [{"message_id": "x", "is_sent": False,
+                               "drop_reason": "raid"}]}
+
+    type(client)._request = dropped  # type: ignore[assignment]
+    with pytest.raises(mod.TwitchError, match="dropped"):
+        run(client.send_chat_message("tok-bot", broadcaster_id="222",
+                                     sender_id="111", message="x"))
+
+
 def test_poll_pending_reads_twitch_message_field(twitch):
     """REGRESSION: Twitch reports device-flow errors in the "message" field
     ({"status": 400, "message": "authorization_pending"}), not the
