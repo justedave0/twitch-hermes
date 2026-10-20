@@ -482,7 +482,6 @@
   function TwitchPage() {
     var st = useState(null);
     var setStatus = st[1];
-    var pollRef = null; // (accounts owns its own poll)
 
     function load() {
       SDK.fetchJSON(BASE + "/status")
