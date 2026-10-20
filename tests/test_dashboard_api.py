@@ -144,7 +144,7 @@ def test_settings_roundtrip_and_env_gates(app_and_state, store):
     client, state = app_and_state
     r = client.put("/settings", json={
         "send_as": "broadcaster", "response_mode": "all",
-        "mention_names": ["davegpt"], "allowed_users": "111, dave",
+        "allowed_users": "111, dave",
         "allow_all_users": True,
     })
     assert r.status_code == 200, r.text
@@ -153,7 +153,6 @@ def test_settings_roundtrip_and_env_gates(app_and_state, store):
     status = client.get("/status").json()["settings"]
     assert status["send_as"] == "broadcaster"
     assert status["response_mode"] == "all"
-    assert status["mention_names"] == ["davegpt"]
     assert store.env["TWITCH_ALLOWED_USERS"] == "111, dave"
     assert store.env["TWITCH_ALLOW_ALL_USERS"] == "true"
 

@@ -5,7 +5,7 @@ Mounted at /api/plugins/twitch-platform/ by the dashboard plugin system.
 Storage (same conventions as the Bambu Lab plugin):
 * non-secret settings → plugins.entries.twitch-platform.settings (config.yaml)
     client_id, channel, accounts (id/login only), send_as, response_mode,
-    mention_names, token_expires
+    token_expires
 * secrets             → .env via the credential lifecycle, read through
   agent.secret_scope, NEVER returned to clients (only has_* flags):
     TWITCH_CLIENT_SECRET, TWITCH_BOT_ACCESS_TOKEN, TWITCH_BOT_REFRESH_TOKEN,
@@ -173,7 +173,6 @@ class TestIn(BaseModel):
 class SettingsIn(BaseModel):
     send_as: Optional[str] = None
     response_mode: Optional[str] = None
-    mention_names: Optional[list[str]] = None
     allowed_users: Optional[str] = None
     allow_all_users: Optional[bool] = None
 
@@ -206,7 +205,6 @@ async def get_status() -> dict[str, Any]:
         "settings": {
             "send_as": s.get("send_as") if s.get("send_as") in ROLES else "bot",
             "response_mode": s.get("response_mode") if s.get("response_mode") in ("mention", "all") else "mention",
-            "mention_names": [str(n) for n in (s.get("mention_names") or [])],
             "allowed_users": _allowed_users(),
             "allow_all_users": _allow_all_users(),
         },
@@ -379,9 +377,8 @@ async def test_message(body: TestIn) -> dict[str, Any]:
 
 @router.put("/settings")
 async def save_settings(body: SettingsIn) -> dict[str, Any]:
-    """Behavior settings. send_as / response_mode / mention_names apply
-    live (the adapter re-reads settings); allowlist changes need a gateway
-    restart (gateway authz)."""
+    """Behavior settings. send_as / response_mode apply live (the adapter
+    re-reads settings); allowlist changes need a gateway restart."""
     s = _settings()
     if body.send_as is not None:
         if body.send_as not in ROLES:
@@ -391,9 +388,6 @@ async def save_settings(body: SettingsIn) -> dict[str, Any]:
         if body.response_mode not in ("mention", "all"):
             raise HTTPException(status_code=400, detail="response_mode must be 'mention' or 'all'")
         _save("response_mode", body.response_mode)
-    if body.mention_names is not None:
-        names = [str(n).strip().lower() for n in body.mention_names if str(n).strip()]
-        _save("mention_names", names)
     restart = False
     if body.allowed_users is not None:
         v = body.allowed_users.strip()

@@ -19,7 +19,6 @@ def _bundle(**over):
         "channel": {"user_id": "222", "login": "justedave"},
         "send_as": "bot",
         "response_mode": "mention",
-        "mention_names": [],
         "token_expires": {},
         "accounts": {
             "bot": {"access_token": "t", "refresh_token": "r", "user_id": "111",
@@ -67,12 +66,6 @@ class TestMentionGate:
         assert adapter_pkg.TwitchAdapter._mentions_us(fa, "hello @other", b) is False
         assert adapter_pkg.TwitchAdapter._mentions_us(fa, "no mention here", b) is False
         assert adapter_pkg.TwitchAdapter._mentions_us(fa, "davegpt is cool (no @)", b) is False
-
-    def test_explicit_mention_names_honored_plus_auto_login(self, adapter_pkg):
-        fa = _adapter(adapter_pkg)
-        b = _bundle(mention_names=["custom"])
-        assert adapter_pkg.TwitchAdapter._mentions_us(fa, "@custom hi", b) is True
-        assert adapter_pkg.TwitchAdapter._mentions_us(fa, "@davegpt hi", b) is True  # login auto-included
 
     def test_send_as_broadcaster_matches_broadcaster_names(self, adapter_pkg):
         fa = _adapter(adapter_pkg)
@@ -147,7 +140,6 @@ class TestBundle:
         store.settings["channel"] = {"user_id": "222", "login": "justedave"}
         store.settings["send_as"] = "broadcaster"
         store.settings["response_mode"] = "all"
-        store.settings["mention_names"] = ["a", "b"]
         store.settings["token_expires"] = {"bot": time.time() + 1000}
         store.settings["accounts"] = {
             "bot": {"user_id": "111", "login": "davegpt", "display_name": "DaveGPT"},
@@ -163,7 +155,6 @@ class TestBundle:
         assert b["client_secret"] == "sec-from-env"
         assert b["send_as"] == "broadcaster"
         assert b["response_mode"] == "all"
-        assert b["mention_names"] == ["a", "b"]
         assert b["accounts"]["bot"]["access_token"] == "tok-bot"
         assert b["accounts"]["broadcaster"]["access_token"] == "tok-broad"
         assert b["channel"]["user_id"] == "222"

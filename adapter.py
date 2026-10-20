@@ -8,7 +8,6 @@ Config model (all per-install, never hardcoded — see README):
                    + settings.accounts.broadcaster
 * send_as:         "bot" (default) | "broadcaster"  — which identity the agent sends under
 * response_mode:   "mention" (default, @<name> required) | "all"
-* mention_names:   display logins to react to in mention mode
 * Allowlist:       TWITCH_ALLOWED_USERS / TWITCH_ALLOW_ALL_USERS (gateway authz, env)
 
 Why WebSocket and not webhook: the WebSocket transport is an OUTBOUND
@@ -115,7 +114,6 @@ def _bundle() -> dict[str, Any]:
         "channel": s.get("channel") or {},
         "send_as": s.get("send_as") if s.get("send_as") in _ROLES else "bot",
         "response_mode": s.get("response_mode") if s.get("response_mode") in ("mention", "all") else "mention",
-        "mention_names": [str(n) for n in (s.get("mention_names") or []) if str(n).strip()],
         "token_expires": s.get("token_expires") or {},
         "accounts": accounts,
     }
@@ -177,7 +175,6 @@ def _env_enablement() -> Optional[dict]:
         "channel_login": str(b["channel"].get("login") or ""),
         "send_as": b["send_as"],
         "response_mode": b["response_mode"],
-        "mention_names": b["mention_names"],
     }
 
 
@@ -410,17 +407,13 @@ class TwitchAdapter(BasePlatformAdapter):
             self._sent_ids.pop(mid, None)
 
     def _mentions_us(self, text: str, b: dict[str, Any]) -> bool:
-        # Case-insensitive: both sides are lowercased. Besides the configured
-        # mention names we always match the active account's login AND display
-        # name (Twitch tab-autocomplete sends the display name, which may
-        # differ in case/spacing, e.g. "Dave GPT" for login "davegpt").
-        names = [n.lower() for n in b["mention_names"] if str(n).strip()]
+        # Case-insensitive: match the active account's own login AND display
+        # name, lowercased. Twitch tab-autocomplete sends the display name,
+        # which may differ in case/spacing from the login (e.g. "Dave GPT"
+        # for login "davegpt"). There is no configurable extra list.
         acc = b["accounts"][b["send_as"]]
-        for extra in (acc.get("login"), acc.get("display_name")):
-            extra = str(extra or "").lower()
-            if extra and extra not in names:
-                names.append(extra)
-        names = [n for n in names if n]
+        names = [str(n).lower() for n in (acc.get("login"), acc.get("display_name"))
+                 if str(n or "").strip()]
         if not names:
             return False
         low = text.lower()

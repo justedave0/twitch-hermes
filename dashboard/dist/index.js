@@ -11,7 +11,7 @@
  *      the token pair when the user authorizes on any device. The broadcaster
  *      login also sets the channel.
  *   3. Behavior card — send-as toggle (bot | broadcaster), response mode
- *      (mention | all), mention names, allowlist.
+ *      (mention | all), allowlist.
  *   4. Test card — sends a message as the active identity.
  *
  * Tokens are never returned by the backend (has_* flags only).
@@ -158,7 +158,6 @@
             settings[1]({
               send_as: d.settings.send_as,
               response_mode: d.settings.response_mode,
-              mention_names: (d.settings.mention_names || []).join(", "),
               allowed_users: d.settings.allowed_users || "",
               allow_all_users: !!d.settings.allow_all_users
             });
@@ -272,7 +271,6 @@
       postJSON(BASE + "/settings", {
         send_as: s.send_as,
         response_mode: s.response_mode,
-        mention_names: String(s.mention_names || "").split(","),
         allowed_users: s.allowed_users,
         allow_all_users: s.allow_all_users
       }, "PUT")
@@ -300,7 +298,7 @@
     }
 
     var d = st[0];
-    var s = settings[0] || { send_as: "bot", response_mode: "mention", mention_names: "", allowed_users: "", allow_all_users: false };
+    var s = settings[0] || { send_as: "bot", response_mode: "mention", allowed_users: "", allow_all_users: false };
     var accs = (d && d.accounts) || {};
 
     return h("div", { className: "flex flex-col gap-6" },
@@ -393,7 +391,6 @@
             value: s.response_mode,
             onChange: function (v) { settings[1](Object.assign({}, s, { response_mode: v })); }
           }),
-          Field({ label: "Mention names (comma-separated logins the @mention gate looks for \u2014 defaults to the active account's login)", value: s.mention_names, placeholder: "e.g. davegpt, justedave", onChange: function (v) { settings[1](Object.assign({}, s, { mention_names: v })); } }),
           Field({ label: "Allowed users (comma-separated Twitch user IDs or logins \u2014 empty = nobody may reach the agent)", value: s.allowed_users, placeholder: "e.g. 298494782324473857, somefriend", onChange: function (v) { settings[1](Object.assign({}, s, { allowed_users: v })); } }),
           h("label", { className: "flex items-center gap-2 text-sm" },
             h("input", {
