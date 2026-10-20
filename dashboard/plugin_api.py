@@ -242,6 +242,7 @@ async def start_connect(body: ConnectIn) -> dict[str, Any]:
     _flows[flow_id] = {
         "device_code": dev["device_code"],
         "role": role,
+        "scopes": list(ROLES_SCOPES[role]),
         "expires_at": time.time() + float(dev.get("expires_in") or 900),
         "interval": float(dev.get("interval") or 5),
         "client_id": client_id,
@@ -270,12 +271,23 @@ async def poll_connect(flow_id: str) -> dict[str, Any]:
     tc = _get_client()
     client = tc.TwitchClient(flow["client_id"], flow["client_secret"])
     try:
-        data = await client.poll_device_token(flow["device_code"])
+        data = await client.poll_device_token(flow["device_code"], flow["scopes"])
     except Exception as e:  # noqa: BLE001
         return {"status": "pending", "error": str(e)[:200]}
     status = data.get("status")
     if status != "authorized":
         return {"status": status}  # pending | slow_down | expired | denied | invalid
+    # Reject a scope-less grant immediately. Twitch returns 200 even when the
+    # user authorized NO scopes — storing that token would break every send
+    # with a confusing "requires the user:write:chat scope" 401.
+    raw_scopes = data.get("scope") or []
+    if isinstance(raw_scopes, str):
+        raw_scopes = raw_scopes.split()
+    if not [s for s in raw_scopes if str(s).strip()]:
+        _flows.pop(flow_id, None)
+        return {"status": "invalid",
+                "warning": "Twitch granted no scopes — the token is useless. "
+                           "Press Connect again and approve the scopes on the activation page."}
     role = flow["role"]
     # Store tokens + expiry
     _store_secret(f"TWITCH_{role.upper()}_ACCESS_TOKEN", data["access_token"])

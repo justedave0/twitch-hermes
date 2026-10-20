@@ -53,9 +53,9 @@ def test_device_flow_pending_then_authorized(twitch):
     client, state, mod = twitch
     dev = run(client.device_authorization(mod.SCOPES_BROADCASTER))
     assert state["device_role"] == "broadcaster"
-    first = run(client.poll_device_token(dev["device_code"]))
+    first = run(client.poll_device_token(dev["device_code"], mod.SCOPES_BROADCASTER))
     assert first["status"] == "pending"
-    second = run(client.poll_device_token(dev["device_code"]))
+    second = run(client.poll_device_token(dev["device_code"], mod.SCOPES_BROADCASTER))
     assert second["status"] == "authorized"
     assert second["access_token"] == "tok-broadcaster"
     assert second["refresh_token"] == "ref-broadcaster"
@@ -65,10 +65,10 @@ def test_device_flow_expired_maps_to_expired_status(client_mod):
     client = client_mod.TwitchClient("cid", "sec")
 
     async def fake(self, method, url, **kw):
-        return 400, {"error": "expired_token"}
+        return 400, {"status": 400, "message": "expired_token"}  # Twitch's real wire shape
 
     type(client)._request = fake  # type: ignore[assignment]
-    assert run(client.poll_device_token("dev-x"))["status"] == "expired"
+    assert run(client.poll_device_token("dev-x", client_mod.SCOPES_BOT))["status"] == "expired"
 
 
 def test_refresh_token_success_and_failure(twitch):
@@ -134,7 +134,7 @@ def test_poll_pending_reads_twitch_message_field(twitch):
         return 400, {"status": 400, "message": "authorization_pending"}
 
     type(client)._request = pending  # type: ignore[assignment]
-    assert run(client.poll_device_token("dev-x"))["status"] == "pending"
+    assert run(client.poll_device_token("dev-x", mod.SCOPES_BOT))["status"] == "pending"
 
 
 def test_poll_all_twitch_error_shapes_map_correctly(twitch):
@@ -152,7 +152,35 @@ def test_poll_all_twitch_error_shapes_map_correctly(twitch):
             return 400, {"status": 400, "message": _m}
 
         type(client)._request = fake  # type: ignore[assignment]
-        assert run(client.poll_device_token("dev-x"))["status"] == want, wire_msg
+        assert run(client.poll_device_token("dev-x", mod.SCOPES_BOT))["status"] == want, wire_msg
+
+
+def test_device_flow_uses_plural_scopes_param_in_both_requests(twitch):
+    """REGRESSION: Twitch's device flow takes ``scopes`` (PLURAL,
+    space-delimited) in BOTH the /oauth2/device request and the
+    /oauth2/token poll request. The singular RFC ``scope`` (or an omitted
+    param) silently yields a token with an EMPTY scope grant — it validates
+    fine but every chat send 401s. This is the costliest lesson in this
+    project: it survived a full pairing and only surfaced on the first send.
+    """
+    client, state, mod = twitch
+    captured = {}
+
+    async def spy(self, method, url, **kw):
+        if url.endswith("/oauth2/device") or url.endswith("/oauth2/token"):
+            captured[url] = dict(kw.get("data") or {})
+        return await make_fake_request(state)(self, method, url, **kw)
+
+    type(client)._request = spy  # type: ignore[assignment]
+    dev = run(client.device_authorization(mod.SCOPES_BOT))
+    run(client.poll_device_token(dev["device_code"], mod.SCOPES_BOT))
+
+    dev_req = captured[f"{mod.ID_URL}/oauth2/device"]
+    tok_req = captured[f"{mod.ID_URL}/oauth2/token"]
+    assert dev_req.get("scopes") == " ".join(mod.SCOPES_BOT), dev_req
+    assert "scope" not in dev_req, "singular 'scope' produces an empty grant"
+    assert tok_req.get("scopes") == " ".join(mod.SCOPES_BOT), tok_req
+    assert "scope" not in tok_req, "the token request MUST carry 'scopes' too"
 
 
 def test_create_chat_subscription_uses_websocket_transport(twitch):

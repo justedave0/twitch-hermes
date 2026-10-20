@@ -70,25 +70,35 @@ class TwitchClient:
     # ── device-activation flow (no redirect URI) ─────────────────────────
 
     async def device_authorization(self, scopes: list[str]) -> dict:
-        """POST /oauth2/device → {device_code, user_code, verification_uri, interval, expires_in}."""
+        """POST /oauth2/device → {device_code, user_code, verification_uri, interval, expires_in}.
+
+        The scope parameter is ``scopes`` (PLURAL, space-delimited) — Twitch's
+        device-flow spelling, not the singular RFC-6749 ``scope``. The
+        singular form silently produces an EMPTY scope grant."""
         code, p = await self._request(
             "POST", f"{ID_URL}/oauth2/device",
-            data={"client_id": self.client_id, "scope": " ".join(scopes)},
+            data={"client_id": self.client_id, "scopes": " ".join(scopes)},
         )
         if code != 200:
             raise TwitchError(code, f"device authorization failed: {p}")
         return p
 
-    async def poll_device_token(self, device_code: str) -> dict:
+    async def poll_device_token(self, device_code: str, scopes: list[str]) -> dict:
         """Poll /oauth2/token for the device grant.
 
         Returns {"status": "authorized", **token} on success, or
         {"status": "pending"|"slow_down"|"expired"|"denied"|"invalid"}.
+
+        ``scopes`` (PLURAL, space-delimited) is REQUIRED by Twitch in the
+        token request — omitting it makes the user authorize an EMPTY scope
+        list: the token then validates fine but carries no scopes, and every
+        chat send 401s with "requires the user:write:chat scope".
         """
         code, p = await self._request(
             "POST", f"{ID_URL}/oauth2/token",
             data={
                 "client_id": self.client_id,
+                "scopes": " ".join(scopes),
                 "device_code": device_code,
                 "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
             },

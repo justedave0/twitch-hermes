@@ -358,7 +358,7 @@ def make_fake_request(state: dict):
         headers = headers or {}
         data = data or {}
         if url.endswith("/oauth2/device"):
-            state["device_role"] = "broadcaster" if "channel:bot" in data.get("scope", "") else "bot"
+            state["device_role"] = "broadcaster" if "channel:bot" in data.get("scopes", "") else "bot"
             return 200, {"device_code": "dev-123", "user_code": "WXYZ-1234",
                          "verification_uri": "https://id.twitch.tv/activate",
                          "interval": 5, "expires_in": 900}
@@ -370,12 +370,17 @@ def make_fake_request(state: dict):
                     # "message", not "error". The fake must match the wire.
                     return 400, {"status": 400, "message": "authorization_pending"}
                 role = state["device_role"]
+                # scope is an ARRAY on the token response (per the Twitch
+                # device-flow doc); tests can force an empty grant.
+                granted = state.get("device_scope",
+                                    ["user:read:chat", "user:write:chat"])
                 return 200, {"access_token": f"tok-{role}", "refresh_token": f"ref-{role}",
-                             "token_type": "Bearer", "expires_in": 21600, "scope": ""}
+                             "token_type": "Bearer", "expires_in": 21600,
+                             "scope": list(granted)}
             if data.get("grant_type") == "refresh_token":
                 return 200, {"access_token": f"tok-fresh-{data['refresh_token']}",
                              "refresh_token": "ref-new", "token_type": "Bearer",
-                             "expires_in": 21600, "scope": ""}
+                             "expires_in": 21600, "scope": ["user:read:chat", "user:write:chat"]}
             return 400, {"status": 400, "message": "unsupported_grant_type"}
         if url.endswith("/oauth2/validate"):
             auth = headers.get("Authorization", "")

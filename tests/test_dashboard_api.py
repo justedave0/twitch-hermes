@@ -220,6 +220,28 @@ def test_delete_account_clears_tokens_and_channel(app_and_state, store):
     assert "TWITCH_HOME_CHANNEL" not in store.env
 
 
+def test_authorized_with_empty_scope_is_rejected(app_and_state, store):
+    """A token granted with NO scopes must be rejected at connect time —
+    storing it would break every send with a confusing 401 ('requires the
+    user:write:chat scope') that only appears later, far from the cause."""
+    client, state = app_and_state
+    store.settings["client_id"] = "cid"
+    store.env["TWITCH_CLIENT_SECRET"] = "sec"
+    state["device_scope"] = []  # the user authorized nothing
+
+    d = client.post("/connect", json={"role": "broadcaster"}).json()
+    flow_id = d["flow_id"]
+    client.get(f"/connect/{flow_id}")  # pending
+    p2 = client.get(f"/connect/{flow_id}").json()
+    assert p2["status"] == "invalid"
+    assert "scopes" in p2.get("warning", "").lower()
+    # Nothing may be stored: no token, no identity, no channel, no home.
+    assert "TWITCH_BROADCASTER_ACCESS_TOKEN" not in store.env
+    assert "TWITCH_BROADCASTER_REFRESH_TOKEN" not in store.env
+    assert store.settings.get("channel") in (None, {})
+    assert "TWITCH_HOME_CHANNEL" not in store.env
+
+
 def test_status_never_leaks_secrets(app_and_state, store):
     client, state = app_and_state
     store.settings["client_id"] = "cid"
